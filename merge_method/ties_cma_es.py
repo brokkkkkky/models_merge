@@ -44,11 +44,12 @@ def parse_args():
     p.add_argument("--max_modules", type=int, default=0, help="调试用，0=全部")
 
     # CMA-ES
-    p.add_argument("--pop", type=int, default=5, help="每代采样数")
+    p.add_argument("--pop", type=int, default=8,
+                   help="每代采样数；7 维建议 >=8，太小协方差估不准")
     p.add_argument("--gens", type=int, default=6, help="最多几代")
     p.add_argument("--sigma", type=float, default=0.3, help="初始步长")
-    p.add_argument("--lo", type=float, default=0.3, help="λ 下界")
-    p.add_argument("--hi", type=float, default=2.0, help="λ 上界")
+    p.add_argument("--lo", type=float, default=0.6, help="λ 下界（低于 0.6 等于关掉该任务）")
+    p.add_argument("--hi", type=float, default=1.8, help="λ 上界")
 
     p.add_argument("--eval_max_samples", type=int, default=300, help="0=全量")
     p.add_argument("--holdout", default="", help="不参与目标函数、只做最后检验的任务")
@@ -159,14 +160,19 @@ def main() -> None:
 
     # 记录函数
     def record(lams, score, accs, stage):
-        history.append({
+        row = {
             "stage": stage,
             "lams": [round(float(x), 4) for x in lams],
             "score": round(float(score), 5),
             "accs": {k: round(float(v), 5) for k, v in accs.items()},
-        })
+        }
+        history.append(row)
+        if args.log:
+            with open(args.log + ".jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
         extra = " ".join(f"{k}={v:.4f}" for k, v in accs.items())
-        print(f"    score={score:.4f}  {extra}", flush=True)
+        print(f"    lam={[round(float(x), 2) for x in lams]}  "
+              f"score={score:.4f}  {extra}", flush=True)
 
     print("[3/4] 基线（λ 全 1）…", flush=True)
     t0 = time.time()
@@ -202,6 +208,9 @@ def main() -> None:
             record(x, score, accs, f"gen{gen}")
             print(f"    ({time.time() - t:.1f}s)", flush=True)
         es.tell(xs, fs)
+
+    print(f"  搜索结束：跑了 {gen} 代，停止原因 {es.stop() or '达到 --gens 上限'}",
+          flush=True)
 
     # 取前topk个
     ranked = sorted(history, key=lambda h: -h["score"])
